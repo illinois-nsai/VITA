@@ -221,14 +221,69 @@ conda create -n vita_demo python==3.10
 conda activate vita_demo
 pip install -r web_demo/web_demo_requirements.txt
 
-# Backup a new weight file
+# If running into issue for pip install pyaudio
+conda install -c conda-forge pyaudio
+
+# Obtain Vita1.5's ckpt
+huggingface-cli download VITA-MLLM/VITA-1.5 --local-dir ./demo_VITA_ckpt
+
+# Backup a new weight file (Original instruction, don't need if downloading directly to demo_VITA_ckpt)
 cp -rL  VITA_ckpt/ demo_VITA_ckpt/
 
 mv demo_VITA_ckpt/config.json demo_VITA_ckpt/origin_config.json
 
 cd ./web_demo/vllm_tools
 cp -rf qwen2p5_model_weight_file/*  ../../demo_VITA_ckpt/
-cp -rf vllm_file/*  your_anaconda/envs/vita_demo/lib/python3.10/site-packages/vllm/model_executor/models/
+cp -rf vllm_file/*  your_anaconda/envs/vita_demo/lib/python3.10/site-packages/vllm/model_executor/models/ #conda info
+
+# Additional fix for original repo
+pip install einops
+pip install  airportsdata
+
+# This is a very hacky fix for pyairport
+python - <<'PY'
+import os, site, textwrap
+
+sp = site.getsitepackages()[0]
+pkg = os.path.join(sp, "pyairports")
+os.makedirs(pkg, exist_ok=True)
+
+# Ensure package init exists
+open(os.path.join(pkg, "__init__.py"), "a").close()
+
+code = textwrap.dedent("""
+    # Compatibility shim for 'pyairports' used by outlines.
+    # Provides AIRPORT_LIST (tuples) and AIRPORT_IATA_LIST (strings).
+    # Each item in AIRPORT_LIST must be indexable and have IATA at index 3.
+
+    from airportsdata import load
+
+    # Load mapping: IATA -> info dict
+    _IATA = load('IATA')  # e.g., {'SFO': {'name': 'San Francisco Intl', 'city': 'San Francisco', ...}, ...}
+
+    def _safe_get(d, k):
+        v = d.get(k)
+        return v if isinstance(v, str) else ("" if v is None else str(v))
+
+    # AIRPORT_LIST: (name, city, country, iata)
+    AIRPORT_LIST = []
+    for code, info in _IATA.items():
+        if not code:
+            continue
+        name = _safe_get(info, 'name')
+        city = _safe_get(info, 'city')
+        country = _safe_get(info, 'country')
+        AIRPORT_LIST.append((name, city, country, code))
+
+    # Keep a simple list of IATA codes too (some callers might use it)
+    AIRPORT_IATA_LIST = sorted([code for code in _IATA.keys() if code])
+""")
+
+with open(os.path.join(pkg, "airports.py"), "w") as f:
+    f.write(code)
+
+print("Wrote shim:", os.path.join(pkg, "airports.py"))
+PY
 ```
 
 
